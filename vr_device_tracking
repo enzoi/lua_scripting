@@ -1,0 +1,66 @@
+----------------------------------------------------------------------------------------------------
+--
+-- All or portions of this file Copyright (c) Amazon.com, Inc. or its affiliates or
+-- its licensors.
+--
+-- For complete copyright and license terms please see the LICENSE at the root of this
+-- distribution (the "License"). All use of this software is governed by the License,
+-- or, if provided, by the license below or the license accompanying this file. Do not
+-- remove or modify any license notices. This file is distributed on an "AS IS" BASIS,
+-- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+--
+--
+----------------------------------------------------------------------------------------------------
+
+local vrdevice_tracking =
+{
+    Properties =
+    {
+		CameraEntity = {default=EntityId()},
+		ControllerEntityLeft = {default=EntityId()},
+		ControllerEntityRight = {default=EntityId()},
+    }
+}
+
+function vrdevice_tracking:OnActivate()
+	self.TickHandler = TickBus.Connect(self, 0)
+end
+
+function vrdevice_tracking:OnDeactivate()
+	if self.TickHandler ~= nil then
+		self.TickHandler:Disconnect()
+		self.TickHandler = nil
+	end
+end
+
+function vrdevice_tracking:OnTick(delta, timepoint)
+	vrdevice_tracking:UpdateControllerTransform(self.Properties.CameraEntity, 1, self.Properties.ControllerEntityRight)
+	vrdevice_tracking:UpdateControllerTransform(self.Properties.CameraEntity, 0, self.Properties.ControllerEntityLeft)
+end
+
+function vrdevice_tracking:UpdateControllerTransform(CameraEntity, ControllerNum, ControllerEntity)
+	if CameraEntity ~= nil and CameraEntity:IsValid() then
+		local parentTM = TransformBus.Event.GetWorldTM(CameraEntity)
+
+		if ControllerRequestBus.Broadcast.IsConnected(ControllerNum) and 
+			parentTM ~= nil and StereoRendererRequestBus.Broadcast.IsRenderingToHMD() and 
+			ControllerEntity ~= nil and ControllerEntity:IsValid() then
+			
+			local entityTM = TransformBus.Event.GetWorldTM(ControllerEntity)
+			local entityTMScale = entityTM:RetrieveScale() -- save scale for later
+			local parentPos = parentTM:GetPosition()
+			local controllerPos = ControllerRequestBus.Broadcast.GetTrackingState(ControllerNum).pose.position
+			local controllerOrient = ControllerRequestBus.Broadcast.GetTrackingState(ControllerNum).pose.orientation
+			
+			-- set the transform to the controller, as a child of the parent
+			entityTM:SetPosition(controllerPos)
+			entityTM:SetRotationPartFromQuaternion(controllerOrient) -- Note: this blows away scale
+			entityTM = parentTM * entityTM;
+			entityTM:MultiplyByScale(entityTMScale) -- set scale back
+			
+			TransformBus.Event.SetWorldTM(ControllerEntity, entityTM)
+		end
+	end
+end
+
+return vrdevice_tracking
